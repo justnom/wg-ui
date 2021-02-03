@@ -39,6 +39,7 @@ var (
 	natLink               = kingpin.Flag("nat-device", "Network interface to masquerade").Default("wlp2s0").String()
 	clientIPRange         = kingpin.Flag("client-ip-range", "Client IP CIDR").Default("172.31.255.0/24").String()
 	authUserHeader        = kingpin.Flag("auth-user-header", "Header containing username").Default("X-Forwarded-User").String()
+	oldAuthUserHeader     = kingpin.Flag("old-auth-user-header", "Header containing username for migrating away from").Default("").String()
 	maxNumberClientConfig = kingpin.Flag("max-number-client-config", "Max number of configs an client can use. 0 is unlimited").Default("0").Int()
 
 	wgLinkName   = kingpin.Flag("wg-device-name", "WireGuard network device name").Default("wg0").String()
@@ -383,6 +384,20 @@ func (s *Server) userFromHeader(handler http.Handler) http.Handler {
 				user = "anonymous"
 			} else {
 				user = claims.Email()
+			}
+		}
+
+		// Migrate over old clients from another user header
+		if *oldAuthUserHeader != "" {
+			oldUser := r.Header.Get(*oldAuthUserHeader)
+			if oldUser != "" {
+				cfg := s.Config.GetUserConfig(user)
+				oldCfg := s.Config.Users[oldUser]
+				if oldCfg != nil && len(oldCfg.Clients) > 0 && len(cfg.Clients) == 0 {
+					cfg.Clients = oldCfg.Clients
+					delete(s.Config.Users, oldUser)
+					s.reconfigure()
+				}
 			}
 		}
 
